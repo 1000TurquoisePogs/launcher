@@ -1261,7 +1261,8 @@ static int check_root_dir() {
     return -1;
   }
   return 0;
-}xo
+}
+
 /* unfortunate bootstrapping: we cannot find configmgr until we find runtimedir
   we must iterate through every yaml file until we find a valid runtimedir
   
@@ -1339,7 +1340,7 @@ static int get_config(char *query, char *buf, size_t buf_size) {
   //we dont really know how many paths will be in the list, but schema + bin is at least 3 of them.
   char command[(MAX_YAML_FILES+4)*PATH_MAX];
   snprintf (command, sizeof(command), "%s/bin/utils/configmgr -s %s -p %s extract %s",
-            zl_context.root_dir, zl_context.schema_path, zl_context.yaml_file, query);
+            zl_context.root_dir, zl_context.schema_list, zl_context.yaml_file, query);
   char output[CONFIGMGR_EXTRACT_OUTPUT_SIZE] = {0};
   if (run_command(command, handle_configmgr_extract, (void*)output)) {
     ERROR(MSG_COMP_LIST_ERR);
@@ -1358,7 +1359,7 @@ static int process_workspace_dir() {
   DEBUG("about to get workspace dir\n");
   char workspace_buf[PATH_MAX];
   
-  get_config("/zowe/workspaceDirectory", buf, sizeof(workspace_buf));
+  get_config("/zowe/workspaceDirectory", workspace_buf, sizeof(workspace_buf));
   zl_context.workspace_dir = workspace_buf;
   
   if (zl_context.workspace_dir == NULL) {
@@ -1538,7 +1539,7 @@ int main(int argc, char **argv) {
   }
 
   //schema list is well known, but need to know root_dir first
-  snprintf(zl_context.schema_path, sizeof(zl_context.schema_path),
+  snprintf(zl_context.schema_list, sizeof(zl_context.schema_list),
            "%s/schemas/zowe-yaml-schema.json:%s/schemas/server-common.json",
            zl_context.root_dir, zl_context.root_dir);
 
