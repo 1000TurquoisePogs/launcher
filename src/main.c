@@ -176,6 +176,42 @@ struct {
   printf("%s <%s:%d> %s DEBUG "fmt, gettime().value, COMP_ID, zl_context.pid, zl_context.userid, ##__VA_ARGS__)
 #define ERROR(fmt, ...) printf("%s <%s:%d> %s ERROR "fmt, gettime().value, COMP_ID, zl_context.pid, zl_context.userid, ##__VA_ARGS__)
 
+static int read_zowe_yaml_config(char *file_path);
+static int get_config(char *query, char *buf, size_t buf_size);
+
+//From zowe-common-c/c/utils.c
+static int indexOf(char *str, int len, char c, int startPos){
+  int pos = startPos;
+  while (pos < len){
+    char c1 = str[pos];
+    if (c1 == c){
+      return pos;
+    }
+    pos++;
+  }
+  return -1;
+}
+
+//From zowe-common-c/c/utils.c
+static int indexOfString(char *str, int len, char *searchString, int startPos){
+  int searchLen = strlen(searchString);
+  int lastPossibleStart = len-searchLen;
+  int pos = startPos;
+
+  if (startPos > lastPossibleStart){
+    return -1;
+  }
+  while (pos <= lastPossibleStart){
+    if (!memcmp(str+pos,searchString,searchLen)){
+      return pos;
+    }
+    pos++;
+  }
+  return -1;
+}
+
+
+
 static int get_env(const char *name, char *buf, size_t buf_size) {
   const char *value = getenv(name);
   if (value == NULL) {
@@ -1225,7 +1261,7 @@ static int check_root_dir() {
     return -1;
   }
   return 0;
-}
+}xo
 /* unfortunate bootstrapping: we cannot find configmgr until we find runtimedir
   we must iterate through every yaml file until we find a valid runtimedir
   
