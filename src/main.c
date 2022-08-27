@@ -278,19 +278,26 @@ static int init_context(int argc, char **argv, const struct zl_config_t *cfg) {
   int index = 0;
   char file[PATH_MAX]={0};
 
-  while (index != -1) {
-    //LIB not supported yet
-    index = indexOfString(zl_context.yaml_file, config_len, "FILE(", index);
-    if (index != -1) {
-      int start = index + 5;
-      int end = indexOf(zl_context.yaml_file, config_len, ')', start);
-      memcpy(file, zl_context.yaml_file + start, end - start);
-      file[end - start] = '\0';
-      if (check_if_file_exists(file, "CONFIG")) {
-        ERROR(MSG_FILE_ERR, "CONFIG", file);
-        return -1;
+  if (zl_context.yaml_file[0] == '/') { // simple file case, must be absolute path.
+    if (check_if_file_exists(zl_context.yaml_file, "CONFIG")) {
+      ERROR(MSG_FILE_ERR, "CONFIG", zl_context.yaml_file);
+      return -1;
+    }
+  } else { //configmgr case with FILE():FILE()... syntax
+    while (index != -1) {
+      //LIB not supported yet
+      index = indexOfString(zl_context.yaml_file, config_len, "FILE(", index);
+      if (index != -1) {
+        int start = index + 5;
+        int end = indexOf(zl_context.yaml_file, config_len, ')', start);
+        memcpy(file, zl_context.yaml_file + start, end - start);
+        file[end - start] = '\0';
+        if (check_if_file_exists(file, "CONFIG")) {
+          ERROR(MSG_FILE_ERR, "CONFIG", file);
+          return -1;
+        }
+        index++;
       }
-      index++;
     }
   }
   
@@ -1200,6 +1207,25 @@ static int get_component_list(char *buf, size_t buf_size) {
   return 0;
 }
 
+static int check_root_dir() {
+  if (strlen(zl_context.root_dir) == 0) {
+    ERROR(MSG_ROOT_DIR_EMPTY);
+    return -1;
+  }
+  if (check_if_dir_exists(zl_context.root_dir, "ROOT_DIR")) {
+    ERROR(MSG_DIR_ERR, "ROOT_DIR", zl_context.root_dir);
+    return -1;
+  }
+  setenv("ROOT_DIR", zl_context.root_dir, 1);
+  INFO(MSG_ROOT_DIR, zl_context.root_dir);
+
+  /* do we really need to change work dir? */
+  if (chdir(zl_context.root_dir)) {
+    DEBUG("working directory not changed - %s\n", strerror(errno));
+    return -1;
+  }
+  return 0;
+}
 /* unfortunate bootstrapping: we cannot find configmgr until we find runtimedir
   we must iterate through every yaml file until we find a valid runtimedir
   
@@ -1213,67 +1239,64 @@ static int process_root_dir() {
   int index = 0;
   char file[PATH_MAX]={0};
   bool found = false;
-      
-  while (index != -1) {
-    //LIB not supported yet
-    index = indexOfString(zl_context.yaml_file, config_len, "FILE(", index);
-    if (index != -1) {
-      int start = index + 5;
-      int end = indexOf(zl_context.yaml_file, config_len, ')', start);
-      memcpy(file, zl_context.yaml_file + start, end - start);
-      file[end - start] = '\0';
 
-      DEBUG("about to get root dir from %s\n", file);
+  if (zl_context.yaml_file[0] == '/') { // simple file case, must be absolute path.
+    DEBUG("about to get root dir from %s\n", zl_context.yaml_file);
       
-      if (read_zowe_yaml_config(file)) {
-        WARN (MSG_USE_DEFAULTS);
+    if (read_zowe_yaml_config(zl_context.yaml_file)) {
+      WARN (MSG_USE_DEFAULTS);
+    }
+
+    zl_yaml_config_t *zowe_yaml_config = &zl_context.yaml_config;
+    yaml_document_t *document = &zowe_yaml_config->document;
+    yaml_node_t *root = zowe_yaml_config->root;
+    const char *zowe_path[] = {"zowe", "runtimeDirectory"};
+
+    if (root) {
+      if (get_string_by_yaml_path(document, root, zowe_path, sizeof(zowe_path)/sizeof(zowe_path[0]), zl_context.root_dir, sizeof(zl_context.root_dir)) == 0) {
+        found = true;
       }
+    }
+  } else {  
+    while (index != -1) { //configmgr case with FILE():FILE()... syntax
+      //LIB not supported yet
+      index = indexOfString(zl_context.yaml_file, config_len, "FILE(", index);
+      if (index != -1) {
+        int start = index + 5;
+        int end = indexOf(zl_context.yaml_file, config_len, ')', start);
+        memcpy(file, zl_context.yaml_file + start, end - start);
+        file[end - start] = '\0';
 
-      zl_yaml_config_t *zowe_yaml_config = &zl_context.yaml_config;
-      yaml_document_t *document = &zowe_yaml_config->document;
-      yaml_node_t *root = zowe_yaml_config->root;
-      const char *zowe_path[] = {"zowe", "runtimeDirectory"};
+        DEBUG("about to get root dir from %s\n", file);
+      
+        if (read_zowe_yaml_config(file)) {
+          WARN (MSG_USE_DEFAULTS);
+        }
 
-      if (root) {
-        if (get_string_by_yaml_path(document, root, zowe_path, sizeof(zowe_path)/sizeof(zowe_path[0]), zl_context.root_dir, sizeof(zl_context.root_dir)) == 0) {
-          found = true;
+        zl_yaml_config_t *zowe_yaml_config = &zl_context.yaml_config;
+        yaml_document_t *document = &zowe_yaml_config->document;
+        yaml_node_t *root = zowe_yaml_config->root;
+        const char *zowe_path[] = {"zowe", "runtimeDirectory"};
 
-          if (strlen(zl_context.root_dir) == 0) {
-            ERROR(MSG_ROOT_DIR_EMPTY);
-            return -1;
-          }
-          if (check_if_dir_exists(zl_context.root_dir, "ROOT_DIR")) {
-            ERROR(MSG_DIR_ERR, "ROOT_DIR", zl_context.root_dir);
-            return -1;
-          }
-          setenv("ROOT_DIR", zl_context.root_dir, 1);
-          INFO(MSG_ROOT_DIR, zl_context.root_dir);
-
-          //schema list is well known, but need to know root_dir first
-          snprintf(zl_context.schema_path, sizeof(zl_context.schema_path),
-                   "%s/schemas/zowe-yaml-schema.json:%s/schemas/server-common.json",
-                   zl_context.root_dir, zl_context.root_dir);
-
-          /* do we really need to change work dir? */
-          if (chdir(zl_context.root_dir)) {
-            DEBUG("working directory not changed - %s\n", strerror(errno));
-            return -1;
+        if (root) {
+          if (get_string_by_yaml_path(document, root, zowe_path, sizeof(zowe_path)/sizeof(zowe_path[0]), zl_context.root_dir, sizeof(zl_context.root_dir)) == 0) {
+            found = true;
           }
         }
-      }
       
-      if (found) {
-        return 0;
+        if (found) {
+          index = -1;
+        } else {
+          index++;
+        }
       }
-      index++;
     }
   }
-
   if (!found) {
     ERROR(MSG_ROOT_DIR_ERR);
     return -1;
   }
-  return 0;
+  return check_root_dir();
 }
 
 static int get_config(char *query, char *buf, size_t buf_size) {
@@ -1477,6 +1500,11 @@ int main(int argc, char **argv) {
   if (process_root_dir()) {
     exit(EXIT_FAILURE);
   }
+
+  //schema list is well known, but need to know root_dir first
+  snprintf(zl_context.schema_path, sizeof(zl_context.schema_path),
+           "%s/schemas/zowe-yaml-schema.json:%s/schemas/server-common.json",
+           zl_context.root_dir, zl_context.root_dir);
 
   if (process_workspace_dir()) {
     exit(EXIT_FAILURE);
